@@ -33,7 +33,6 @@ def load_subreddits(filename):
     return []
 
 #Loops over the subreddits and gets the top sub_count submissions of all time
-#NOTE: sub_count currently is broken in the API, open ticket: https://github.com/praw-dev/praw/issues/759
 def get_submission_data(subreddits, reddit, sub_count):
   global __verbose
   retval = {}
@@ -105,7 +104,7 @@ def process_images(submissions):
       try:
         #Get image
         cv_img = url_to_image(submission['link'])
-      except IOError:
+      except (IOError, cv2.error):
         print "\t\t~Error Retrieving image, skipping..."
         total_count -= 1
         continue
@@ -173,7 +172,7 @@ def main(argv):
   parser.add_argument("-v", "--verbose", default=False, action='store_true', help="Increase verbosity of the application")
   parser.add_argument("--neighbors", default=DEF_NEIGHBORS, type=int, help="The number of neighbors to observe when classifying (Default = '" + str(DEF_NEIGHBORS) + "')")
   parser.add_argument("--jobs", default=DEF_JOBS, type=int, help="The number of cores to run the classification processes (Default = " + str(DEF_JOBS) + ")")
-  parser.add_argument("--subcount", default=DEF_SUB_COUNT, type=int, help="The amount of submissions from each subreddit to pull (Default = " + str(DEF_SUB_COUNT) + ") **BUG IN LIBRARY, OPEN ISSUE: https://github.com/praw-dev/praw/issues/759**")
+  parser.add_argument("--subcount", default=DEF_SUB_COUNT, type=int, help="The amount of submissions from each subreddit to pull (Default = " + str(DEF_SUB_COUNT) + ")")
   args = parser.parse_args(argv)
 
   __verbose = args.verbose
@@ -199,7 +198,7 @@ def main(argv):
   #Create pickle filename
   print "Retrieving submission data from subreddits...\n"
   raw_class_filename = os.path.splitext(os.path.basename(args.classes))[0]
-  pkl_file = PKL_CACHE_DIR + "/" + raw_class_filename + "_" + str(args.subcount) + ".pkl"
+  pkl_file = PKL_CACHE_DIR + raw_class_filename + "_" + str(args.subcount) + ".pkl"
   save_to_cache = False
 
   #attempt to open the file
