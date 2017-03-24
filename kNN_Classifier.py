@@ -12,9 +12,11 @@ import imutils
 import cv2
 import numpy as np
 from PIL import Image
+import pprint
 
 DEF_CLASS_FILE = "Keys/subreddits.keys"
 PKL_CACHE_DIR = "Cache/"
+DEF_TEMP_IMG = "temp."
 DEF_NEIGHBORS = 1
 DEF_JOBS = -1
 DEF_SUB_COUNT = 1000
@@ -72,14 +74,8 @@ def extract_color_histogram(image, bins=(8, 8, 8)):
   hist = cv2.calcHist([hsv], [0, 1, 2], None, bins,
     [0, 180, 0, 256, 0, 256])
  
-  # handle normalizing the histogram if we are using OpenCV 2.4.X
-  if imutils.is_cv2():
-    hist = cv2.normalize(hist)
- 
-  # otherwise, perform "in place" normalization in OpenCV 3 (I
-  # personally hate the way this is done
-  else:
-    cv2.normalize(hist, hist)
+  #normalize
+  cv2.normalize(hist, hist)
  
   # return the flattened histogram as the feature vector
   return hist.flatten()
@@ -104,12 +100,18 @@ def process_images(submissions):
       try:
         file = csio.StringIO(urllib.urlopen(submission['link']).read())
         pil_img = Image.open(file)
+        filename = DEF_TEMP_IMG + pil_img.format
+        pil_img.save(filename)
       except IOError:
         print "\t\t~Error Retrieving image, skipping..."
         total_count -= 1
         continue
 
-      cv_img = np.array(pil_img)
+
+      
+      cv_img = cv2.imread(filename)
+      
+      os.remove(filename)
 
       #convert from RGB to BGR
       try:
@@ -118,9 +120,13 @@ def process_images(submissions):
         print "\t\t~Error Converting from RGB to BGR, skipping..."
         total_count -= 1
         continue
+      except TypeError:
+        print "\t\tError Converting Image to CV2 format, skipping..."
+        total_count += 1
+        continue
 
       if len(cv_img.shape) < 3:
-        print "\t\t~Image does not have enough channels, skipping..."
+        print "\t\t~Image must have exactly 3 or 4 channels..."
         total_count -= 1
         continue
 
@@ -140,7 +146,7 @@ def process_images(submissions):
         print "\t\tr/" + subreddit + ": " + str(counter) + "/" + str(total_count)
       counter += 1
 
-    return raw_imgs, features, classes
+  return raw_imgs, features, classes
 
 def train_and_test(train_set, train_labels, test_set, test_labels, neighbor_count, job_count):
   classifier = KNeighborsClassifier(n_neighbors=neighbor_count, n_jobs=job_count)
@@ -149,6 +155,8 @@ def train_and_test(train_set, train_labels, test_set, test_labels, neighbor_coun
 
 def main(argv):
   global __verbose
+
+  pp = pprint.PrettyPrinter(indent=2)
 
   #parse arguments
   parser = ap.ArgumentParser(description="This application retrieves submissions from Reddit using the Reddit API")
@@ -208,15 +216,27 @@ def main(argv):
   raw_imgs, features, classes = process_images(submissions)
   print "Image Processing Complete"
 
-
-  print "Shuffling and creating datasets"
-  #create test and train sets
-  train_imgs, test_imgs, train_img_labels, test_img_labels = train_test_split(raw_imgs, classes, test_size=0.25, random_state=42)
+  print "Shuffling and creating histogram training and test set"
   train_feats, test_feats, train_feat_labels, test_feat_labels = train_test_split(features, classes, test_size=0.25, random_state=42)
 
+  #create test and train sets
+  print "Shuffling and creating raw image training and test set"
+  train_imgs, test_imgs, train_img_labels, test_img_labels = train_test_split(raw_imgs, classes, test_size=0.25, random_state=42)
+
+  
+
+  # for i in range(1, len(train_imgs)):
+  #   if len(train_imgs[i]) != len(train_imgs[i-1]):
+  #     print "DATA MISMATCH"
+  #     sys.exit(-3)
+
   #Test classification accuracy
-  raw_img_acc = train_and_test(train_imgs, train_img_labels, test_imgs, test_img_labels, args.neighbors, args.jobs)
+  print "Training and testing histogram data"
   feat_acc = train_and_test(train_feats, train_feat_labels, test_feats, test_feat_labels, args.neighbors, args.jobs)
+
+  print "Training and testing raw image data"
+  raw_img_acc = train_and_test(train_imgs, train_img_labels, test_imgs, test_img_labels, args.neighbors, args.jobs)
+
 
   print "~~FINISHED~~"
   print "Raw Image Accuracy: " + str(raw_img_acc * 100) + "%"
