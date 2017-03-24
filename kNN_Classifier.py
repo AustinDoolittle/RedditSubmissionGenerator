@@ -12,7 +12,6 @@ import imutils
 import cv2
 import numpy as np
 from PIL import Image
-import pprint
 
 DEF_CLASS_FILE = "Keys/subreddits.keys"
 PKL_CACHE_DIR = "Cache/"
@@ -23,18 +22,23 @@ DEF_SUB_COUNT = 1000
 
 __verbose = False
 
+#Loads the subreddit names from the specified .keys file
 def load_subreddits(filename):
   try:
     with open(filename, 'r') as f:
+      #return lines with leading and trailing empty chars removed
       return [r.strip() for r in f.readlines()]
   except:
+    #error, return an empty list
     return []
 
-
+#Loops over the subreddits and gets the top sub_count submissions of all time
+#NOTE: sub_count currently is broken in the API, open ticket: https://github.com/praw-dev/praw/issues/759
 def get_submission_data(subreddits, reddit, sub_count):
   global __verbose
-
   retval = {}
+
+  #iterate over the subreddit list
   for subreddit in subreddits:
     if __verbose:
       print "\tGetting submissions for r/" + subreddit
@@ -42,6 +46,7 @@ def get_submission_data(subreddits, reddit, sub_count):
     count = 1
     retval[subreddit] = []
 
+    #iterate over the submissions and gather their id, link, and title
     for submission in reddit.subreddit(subreddit).top(limit=sub_count):
       if __verbose:
         print "\t\tr/" + subreddit + ": " + str(count) + "/" + str(sub_count)
@@ -87,17 +92,18 @@ def process_images(submissions):
   features = []
   classes = []
 
-
+  #iterate over subreddits
   for subreddit in submissions:
     counter = 1
     total_count = len(submissions[subreddit])
     if __verbose:
       print "\tProcessing images from r/" + subreddit
 
+    #iterate over submissions in subreddit
     for submission in submissions[subreddit]:
 
-      #Code augmented from http://stackoverflow.com/questions/14134892/convert-image-from-pil-to-opencv-format, user: Abhishek Thakur
       try:
+        #download image, save to disk
         file = csio.StringIO(urllib.urlopen(submission['link']).read())
         pil_img = Image.open(file)
         filename = DEF_TEMP_IMG + pil_img.format
@@ -107,37 +113,44 @@ def process_images(submissions):
         total_count -= 1
         continue
 
-
-      
+      #read the temp file into OpenCV format
       cv_img = cv2.imread(filename)
+
+      #check that the image was read successfully
+      if cv_img is None:
+        print "\t\tError Converting Image to CV2 format, skipping..."
+        total_count -= 1
+        continue
       
+      #remove the temp file
       os.remove(filename)
 
       #convert from RGB to BGR
       try:
         cv_img = cv_img[:, :, ::-1].copy() 
       except IndexError:
+        #cv_img is structured incorrectly
         print "\t\t~Error Converting from RGB to BGR, skipping..."
         total_count -= 1
         continue
-      except TypeError:
-        print "\t\tError Converting Image to CV2 format, skipping..."
-        total_count += 1
-        continue
-
+        
+      #check that the image is not grayscale
       if len(cv_img.shape) < 3:
         print "\t\t~Image must have exactly 3 or 4 channels..."
         total_count -= 1
         continue
 
+      #gather pixel and color histogram
       pixels = image_to_feature_vector(cv_img)
       hist = extract_color_histogram(cv_img)
 
+      #check for histogram error
       if hist is None:
         print "\t\t~Error Converting raw image to histogram, skipping..."
         total_count -= 1
         continue
 
+      #append to return values
       raw_imgs.append(pixels)
       features.append(hist)
       classes.append(subreddit)
@@ -148,6 +161,7 @@ def process_images(submissions):
 
   return raw_imgs, features, classes
 
+#trains and tests on the provided train and test sets
 def train_and_test(train_set, train_labels, test_set, test_labels, neighbor_count, job_count):
   classifier = KNeighborsClassifier(n_neighbors=neighbor_count, n_jobs=job_count)
   classifier.fit(train_set, train_labels)
@@ -156,7 +170,6 @@ def train_and_test(train_set, train_labels, test_set, test_labels, neighbor_coun
 def main(argv):
   global __verbose
 
-  pp = pprint.PrettyPrinter(indent=2)
 
   #parse arguments
   parser = ap.ArgumentParser(description="This application retrieves submissions from Reddit using the Reddit API")
@@ -165,7 +178,6 @@ def main(argv):
   parser.add_argument("--neighbors", default=DEF_NEIGHBORS, help="The number of neighbors to observe when classifying (Default = '" + str(DEF_NEIGHBORS) + "')")
   parser.add_argument("--jobs", default=DEF_JOBS, help="The number of cores to run the classification processes (Default = " + str(DEF_JOBS) + ")")
   parser.add_argument("--subcount", default=DEF_SUB_COUNT, help="The amount of submissions from each subreddit to pull (Default = " + str(DEF_SUB_COUNT) + ") **BUG IN LIBRARY, OPEN ISSUE: https://github.com/praw-dev/praw/issues/759**")
-  
   args = parser.parse_args(argv)
 
   __verbose = args.verbose
@@ -179,31 +191,33 @@ def main(argv):
                       user_agent=secrets.CLIENT_USER_AGENT,
                       username=secrets.CLIENT_USERNAME)
 
-  print "Loading subreddits from file " + args.classes
-
   #Load the Subreddit Keys
+  print "Loading subreddits from file " + args.classes
   subreddits = load_subreddits(args.classes)
 
+  #Check for error
   if subreddits == []:
     print "There was an error reading the classes file"
     sys.exit(-2)
 
+  #Create pickle filename
   print "Retrieving submission data from subreddits...\n"
-
   raw_class_filename = os.path.splitext(os.path.basename(args.classes))[0]
   pkl_file = PKL_CACHE_DIR + "/" + raw_class_filename + "_" + str(args.subcount) + ".pkl"
-
   save_to_cache = False
 
+  #attempt to open the file
   try:
     with open(pkl_file, 'rb') as f:
       submissions = pkl.load(f)
       print "\tRetrieved from Cache\n"
   except Exception as ex:
+    #the file did not exist or could not be opened, we'll get data from Reddit
     print "\tNo cached data, retrieving from Reddit API \n"
     submissions = get_submission_data(subreddits, reddit, args.subcount)
     save_to_cache = True
 
+  #check if we should cache the data we just got
   if save_to_cache:
     print "Saving Cache to " + pkl_file
     try:
@@ -212,23 +226,17 @@ def main(argv):
     except Exception as ex:
       print "\t~Unable to save submissions to cache: " + ex.strerror
 
+  #Process all of the images
   print "Processing images..."
   raw_imgs, features, classes = process_images(submissions)
   print "Image Processing Complete"
 
+  #Get Training and Test sets
   print "Shuffling and creating histogram training and test set"
   train_feats, test_feats, train_feat_labels, test_feat_labels = train_test_split(features, classes, test_size=0.25, random_state=42)
 
-  #create test and train sets
   print "Shuffling and creating raw image training and test set"
   train_imgs, test_imgs, train_img_labels, test_img_labels = train_test_split(raw_imgs, classes, test_size=0.25, random_state=42)
-
-  
-
-  # for i in range(1, len(train_imgs)):
-  #   if len(train_imgs[i]) != len(train_imgs[i-1]):
-  #     print "DATA MISMATCH"
-  #     sys.exit(-3)
 
   #Test classification accuracy
   print "Training and testing histogram data"
@@ -237,7 +245,7 @@ def main(argv):
   print "Training and testing raw image data"
   raw_img_acc = train_and_test(train_imgs, train_img_labels, test_imgs, test_img_labels, args.neighbors, args.jobs)
 
-
+  #Display results
   print "~~FINISHED~~"
   print "Raw Image Accuracy: " + str(raw_img_acc * 100) + "%"
   print "Feature Accuracy: " + str(feat_acc * 100) + "%"
@@ -245,7 +253,7 @@ def main(argv):
   return 0
 
 if __name__ == "__main__":
-  #call the main method, do this so we can also call the main method from other files
+  #call the main method, do this so we can also call the main method from other files if need be
   sys.exit(main(sys.argv[1:]))
 
 
