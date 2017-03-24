@@ -103,27 +103,18 @@ def process_images(submissions):
     for submission in submissions[subreddit]:
 
       try:
-        #download image, save to disk
-        file = csio.StringIO(urllib.urlopen(submission['link']).read())
-        pil_img = Image.open(file)
-        filename = DEF_TEMP_IMG + pil_img.format
-        pil_img.save(filename)
+        #Get image
+        cv_img = url_to_image(submission['link'])
       except IOError:
         print "\t\t~Error Retrieving image, skipping..."
         total_count -= 1
         continue
-
-      #read the temp file into OpenCV format
-      cv_img = cv2.imread(filename)
 
       #check that the image was read successfully
       if cv_img is None:
         print "\t\tError Converting Image to CV2 format, skipping..."
         total_count -= 1
         continue
-      
-      #remove the temp file
-      os.remove(filename)
 
       #convert from RGB to BGR
       try:
@@ -167,6 +158,11 @@ def train_and_test(train_set, train_labels, test_set, test_labels, neighbor_coun
   classifier.fit(train_set, train_labels)
   return classifier.score(test_set, test_labels)
 
+def url_to_image(url):
+  resp = urllib.urlopen(url)
+  image = np.asarray(bytearray(resp.read()), dtype="uint8")
+  return cv2.imdecode(image, cv2.IMREAD_COLOR)
+
 def main(argv):
   global __verbose
 
@@ -175,9 +171,9 @@ def main(argv):
   parser = ap.ArgumentParser(description="This application retrieves submissions from Reddit using the Reddit API")
   parser.add_argument("--classes", default=DEF_CLASS_FILE, help="The file to load the list of classes from (Default = '" + DEF_CLASS_FILE + "'')")
   parser.add_argument("-v", "--verbose", default=False, action='store_true', help="Increase verbosity of the application")
-  parser.add_argument("--neighbors", default=DEF_NEIGHBORS, help="The number of neighbors to observe when classifying (Default = '" + str(DEF_NEIGHBORS) + "')")
-  parser.add_argument("--jobs", default=DEF_JOBS, help="The number of cores to run the classification processes (Default = " + str(DEF_JOBS) + ")")
-  parser.add_argument("--subcount", default=DEF_SUB_COUNT, help="The amount of submissions from each subreddit to pull (Default = " + str(DEF_SUB_COUNT) + ") **BUG IN LIBRARY, OPEN ISSUE: https://github.com/praw-dev/praw/issues/759**")
+  parser.add_argument("--neighbors", default=DEF_NEIGHBORS, type=int, help="The number of neighbors to observe when classifying (Default = '" + str(DEF_NEIGHBORS) + "')")
+  parser.add_argument("--jobs", default=DEF_JOBS, type=int, help="The number of cores to run the classification processes (Default = " + str(DEF_JOBS) + ")")
+  parser.add_argument("--subcount", default=DEF_SUB_COUNT, type=int, help="The amount of submissions from each subreddit to pull (Default = " + str(DEF_SUB_COUNT) + ") **BUG IN LIBRARY, OPEN ISSUE: https://github.com/praw-dev/praw/issues/759**")
   args = parser.parse_args(argv)
 
   __verbose = args.verbose
