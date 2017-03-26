@@ -13,6 +13,8 @@ def main(argv):
   parser.add_argument("--neighbors", default=config.DEF_NEIGHBORS, type=int, help="The number of neighbors to observe when classifying (Default = '" + str(config.DEF_NEIGHBORS) + "')")
   parser.add_argument("--jobs", default=config.DEF_JOBS, type=int, help="The number of cores to run the classification processes (Default = " + str(config.DEF_JOBS) + ")")
   parser.add_argument("--subcount", default=config.DEF_SUB_COUNT, type=int, help="The amount of submissions from each subreddit to pull (Default = " + str(config.DEF_SUB_COUNT) + ")")
+  parser.add_argument("--knnhist", default=False, action='store_true', help="Use kNN classification by color histogram")
+  parser.add_argument("--knnfeat", default=False, action='store_true', help="Use kNN classification by feature vector")
   args = parser.parse_args(argv)
 
   args.verbose
@@ -32,30 +34,31 @@ def main(argv):
   #get submissions
   submissions = reddit.get_submissions(args.subcount)
 
-  knn_classifier = knn.kNNClassifier(args.verbose)
+  if args.knnfeat or args.knnhist:
+    knn_classifier = knn.kNNClassifier(args.verbose)
+    if args.knnhist:
+      #Get Training and Test feature vector sets
+      print "Shuffling and creating histogram training and test set"
+      train_feats, test_feats, train_feat_labels, test_feat_labels = knn_classifier.convert_to_dataset(submissions, type=knn.ProcessType.FeatureVector)
 
-  #Get Training and Test feature vector sets
-  print "Shuffling and creating histogram training and test set"
-  train_feats, test_feats, train_feat_labels, test_feat_labels = knn_classifier.convert_to_dataset(submissions, type=knn.ProcessType.FeatureVector)
+      #Test classification accuracy
+      print "Training and testing feature vector data"
+      feat_acc = knn_classifier.train_and_test(train_feats, train_feat_labels, test_feats, test_feat_labels, args.neighbors, args.jobs)
 
-  #Test classification accuracy
-  print "Training and testing feature vector data"
-  feat_acc = knn_classifier.train_and_test(train_feats, train_feat_labels, test_feats, test_feat_labels, args.neighbors, args.jobs)
+      print "\n~~FINISHED~~"
+      print "Feature Accuracy: " + str(feat_acc * 100) + "%\n"
+    
+    if args.knnfeat:
+      #Get Training and Test feature vector sets
+      print "Shuffling and creating histogram training and test set"
+      train_hists, test_hists, train_hist_labels, test_hist_labels = knn_classifier.convert_to_dataset(submissions, type=knn.ProcessType.ColorHistogram)
 
-   #Get Training and Test feature vector sets
-  print "Shuffling and creating histogram training and test set"
-  train_hists, test_hists, train_hist_labels, test_hist_labels = knn_classifier.convert_to_dataset(submissions, type=knn.ProcessType.ColorHistogram)
+      #Test classification accuracy
+      print "Training and testing histure vector data"
+      hist_acc = knn_classifier.train_and_test(train_hists, train_hist_labels, test_hists, test_hist_labels, args.neighbors, args.jobs)
 
-  #Test classification accuracy
-  print "Training and testing histure vector data"
-  hist_acc = knn_classifier.train_and_test(train_hists, train_hist_labels, test_hists, test_hist_labels, args.neighbors, args.jobs)
-
-
-
-  #Display results
-  print "~~FINISHED~~"
-  print "Feature Accuracy: " + str(feat_acc * 100) + "%"
-  print "Histogram Accuracy: " + str(hist_acc * 100) + "%"
+      print "\n~~FINISHED~~"
+      print "Histogram Accuracy: " + str(hist_acc * 100) + "%\n"
 
   return 0
 
