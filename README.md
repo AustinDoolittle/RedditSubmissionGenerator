@@ -10,7 +10,7 @@ This application uses a convolutional neural network and multiple recursive neur
 - praw
 
 ## Reddit API
-You must set up an application through the reddit API and include the following information as variables
+You must set up an application through the reddit API and include the following information as variables in a file in the root directory called secrets.py
 - Client ID => CLIENT_ID
 - Client Secret => CLIENT_SECRET
 - Password => CLIENT_PASSWORD
