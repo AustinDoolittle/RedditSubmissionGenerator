@@ -27,6 +27,7 @@ def main(argv):
   parser.add_argument("--knnhist", default=False, action='store_true', help="Use kNN classification by color histogram")
   parser.add_argument("--knnfeat", default=False, action='store_true', help="Use kNN classification by feature vector")
   parser.add_argument("--lenet", default=False, action="store_true", help="Use a CNN in the LeNet configuration")
+  parser.add_argument("--channels", default=config.DEF_CHANNEL_COUNT, help="The count of target channels in the datasets")
   args = parser.parse_args(argv)
 
   args.verbose
@@ -46,34 +47,38 @@ def main(argv):
   try:
     with open(pkl_file, 'rb') as f:
       cache = pkl.load(f)
-      data = cache[0]
-      labels = cache[1]
+      train_s = cache[0]
+      test_s = cache[1]
+      train_l = cache[2]
+      test_l = cache[3]
+      sr_count = cache[4]
       get_data = False
       print "\tRetrieved from Cache\n"
   except Exception as ex:
     #the file did not exist or could not be opened, we'll get data from Reddit
     print "\tNo cached data, retrieving from Reddit API \n"
 
-  #setup reddit object
-  reddit = SubmissionRetriever(secrets.CLIENT_ID, 
+  if get_data:
+    #setup reddit object
+    reddit = SubmissionRetriever(secrets.CLIENT_ID, 
                                 secrets.CLIENT_SECRET, 
                                 secrets.CLIENT_PASSWORD,
                                 secrets.CLIENT_USER_AGENT,
                                 secrets.CLIENT_USERNAME,
                                 filename=args.classes,
                                 verbose=args.verbose)
-
-  if get_data:
-
-    
-    
     submissions = reddit.get_submissions(args.subcount)
+    sr_count = len(reddit.subreddits)
     batch_size = 16
 
     if args.lenet:
-      data, labels = ImgProcessor.get_conv_dataset(submissions, batch_size, args.verbose)
-      labels = [reddit.subreddits.index(x) for x in labels]
-      cache = (data, labels)
+      train_s, test_s, train_l, test_l = ImgProcessor.get_conv_dataset(submissions, args.channels, args.verbose)
+    elif args.knnhist:
+      train_s, test_s, train_l, test_l = ImgProcessor.get_hist_dataset(submissions, args.verbose)
+    elif args.knnfeat:
+      train_s, test_s, train_l, test_l = ImgProcessor.get_feat_dataset(submissions, args.verbose)
+
+    cache = (train_s, test_s, train_l, test_l, sr_count)
 
     print "Saving Cache to " + pkl_file
     try:
@@ -86,9 +91,6 @@ def main(argv):
   if args.knnfeat or args.knnhist:
     knn_classifier = kNNClassifier(args.verbose)
     if args.knnhist:
-      #Get Training and Test feature vector sets
-      print "Shuffling and creating histogram training and test set"
-      train_feats, test_feats, train_feat_labels, test_feat_labels = ImgProcessor.convert_to_dataset(submissions, verbose=args.verbose, type=ProcessType.FeatureVector)
 
       #Test classification accuracy
       print "Training and testing feature vector data"
@@ -98,11 +100,6 @@ def main(argv):
       print "Feature Accuracy: " + str(feat_acc * 100) + "%\n"
     
     if args.knnfeat:
-      #Get Training and Test feature vector sets
-      print "Shuffling and creating histogram training and test set"
-      train_hists, test_hists, train_hist_labels, test_hist_labels = ImgProcessor.convert_to_dataset(submissions, verbose=args.verbose, type=ProcessType.ColorHistogram)
-
-      #Test classification accuracy
       print "Training and testing histure vector data"
       hist_acc = knn_classifier.train_and_test(train_hists, train_hist_labels, test_hists, test_hist_labels, args.neighbors, args.jobs)
 
@@ -111,11 +108,7 @@ def main(argv):
 
   elif args.lenet:
 
-    net = LeNet(3, 150, 150, len(reddit.subreddits))
-
-    train_s, test_s, train_l, test_l = train_test_split(data, labels, test_size=.25)
-
-
+    net = LeNet(args.channels, 150, 150, sr_count)
 
     net.model.fit(
         np.asarray(train_s),
