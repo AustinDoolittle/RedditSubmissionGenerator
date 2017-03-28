@@ -36,29 +36,9 @@ class SubmissionRetriever(object):
     if self.subreddits is None:
       raise AttributeError("You must load the subreddits to get the submissions")
 
-    raw_class_filename = os.path.splitext(os.path.basename(self.filename))[0]
-    pkl_file = config.PKL_CACHE_DIR + raw_class_filename + "_" + str(sub_count) + ".pkl"
-    save_to_cache = False
+    
 
-    #attempt to open the file
-    try:
-      with open(pkl_file, 'rb') as f:
-        submissions = pkl.load(f)
-        print "\tRetrieved from Cache\n"
-    except Exception as ex:
-      #the file did not exist or could not be opened, we'll get data from Reddit
-      print "\tNo cached data, retrieving from Reddit API \n"
-      submissions = self.get_submission_data(sub_count)
-      save_to_cache = True
-
-    #check if we should cache the data we just got
-    if save_to_cache:
-      print "Saving Cache to " + pkl_file
-      try:
-        with open(pkl_file, 'wb') as f:
-          pkl.dump(submissions, f, pkl.HIGHEST_PROTOCOL)
-      except Exception as ex:
-        print "\t~Unable to save submissions to cache: " + str(ex)
+    submissions = self.get_submission_data(sub_count)
 
     return submissions
 

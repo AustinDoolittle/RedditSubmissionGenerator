@@ -2,6 +2,8 @@ import argparse as ap
 import sys
 import config
 import secrets
+import re
+import os
 from redditretriever.retriever import SubmissionRetriever
 from classifiers.knn.knnclassifier import kNNClassifier
 from classifiers.cnn.networks.lenet import LeNet
@@ -10,6 +12,9 @@ from keras.optimizers import SGD
 from keras.utils import np_utils
 from processing.processor import ImgProcessor 
 from processing.processor import ProcessType
+from sklearn.cross_validation import train_test_split
+import numpy as np
+import pickle as pkl
 
 def main(argv):
   #parse arguments
@@ -26,20 +31,57 @@ def main(argv):
 
   args.verbose
 
-  print "Creating SubmissionRetriever object"
+  if args.lenet:
+    class_type = "lenet"
+  elif args.knnhist:
+    class_type = "knnhist"
+  elif args.knnfeat:
+    class_type = "knn_feat"
+
+  raw_class_filename = os.path.splitext(os.path.basename(args.classes))[0]
+  pkl_file = config.PKL_CACHE_DIR + raw_class_filename + "_" + str(args.subcount) + "_" + class_type + ".pkl"
+  get_data = True
+
+  #attempt to open the file
+  try:
+    with open(pkl_file, 'rb') as f:
+      cache = pkl.load(f)
+      data = cache[0]
+      labels = cache[1]
+      get_data = False
+      print "\tRetrieved from Cache\n"
+  except Exception as ex:
+    #the file did not exist or could not be opened, we'll get data from Reddit
+    print "\tNo cached data, retrieving from Reddit API \n"
 
   #setup reddit object
   reddit = SubmissionRetriever(secrets.CLIENT_ID, 
-                                  secrets.CLIENT_SECRET, 
-                                  secrets.CLIENT_PASSWORD,
-                                  secrets.CLIENT_USER_AGENT,
-                                  secrets.CLIENT_USERNAME,
-                                  filename=args.classes,
-                                  verbose=args.verbose)
+                                secrets.CLIENT_SECRET, 
+                                secrets.CLIENT_PASSWORD,
+                                secrets.CLIENT_USER_AGENT,
+                                secrets.CLIENT_USERNAME,
+                                filename=args.classes,
+                                verbose=args.verbose)
 
+  if get_data:
 
-  #get submissions
-  submissions = reddit.get_submissions(args.subcount)
+    
+    
+    submissions = reddit.get_submissions(args.subcount)
+    batch_size = 16
+
+    if args.lenet:
+      data, labels = ImgProcessor.get_conv_dataset(submissions, batch_size, args.verbose)
+      labels = [reddit.subreddits.index(x) for x in labels]
+      cache = (data, labels)
+
+    print "Saving Cache to " + pkl_file
+    try:
+      with open(pkl_file, 'wb') as f:
+        pkl.dump(cache, f, pkl.HIGHEST_PROTOCOL)
+    except Exception as ex:
+      print "\t~Unable to save submissions to cache: " + str(ex)
+
 
   if args.knnfeat or args.knnhist:
     knn_classifier = kNNClassifier(args.verbose)
@@ -68,32 +110,22 @@ def main(argv):
       print "Histogram Accuracy: " + str(hist_acc * 100) + "%\n"
 
   elif args.lenet:
-    #code augmented from http://www.pyimagesearch.com/2016/08/01/lenet-convolutional-neural-network-in-python/
 
-    train_set, test_set, train_labels, test_labels = ImgProcessor.convert_to_dataset(submissions, verbose=args.verbose, type=ProcessType.Convolutional)
+    net = LeNet(3, 150, 150, len(reddit.subreddits))
 
-    # transform the training and testing labels into vectors in the
-    # range [0, classes] -- this generates a vector for each label,
-    # where the index of the label is set to `1` and all other entries
-    # to `0`; in the case of MNIST, there are 10 class labels
-    train_labels = np_utils.to_categorical(train_labels, 10)
-    test_labels = np_utils.to_categorical(test_labels, 10)
+    train_s, test_s, train_l, test_l = train_test_split(data, labels, test_size=.25)
 
-    # initialize the optimizer and model
-    print("[INFO] compiling model...")
-    opt = SGD(lr=0.01)
-    model = LeNet(3, len(reddit.subreddits))
-    model.compile("categorical_crossentropy", opt, ["accuracy"])
 
-    print "Training..."
-    model.fit(trainData, trainLabels, 128, 20, 1)
-   
-    # show the accuracy on the testing set
-    print "Testing..."
-    (loss, accuracy) = model.evaluate(testData, testLabels,
-      batch_size=128, verbose=1)
-    print("DONE, Accuracy: {:.2f}%".format(accuracy * 100))
 
+    net.model.fit(
+        np.asarray(train_s),
+        np.asarray(train_l),
+        validation_split=0.25,
+        epochs=50)
+
+    loss, accuracy = net.model.evaluate(np.asarray(test_s), np.asarray(test_l), verbose=1)
+
+    print "loss: " + str(loss) + ", Accuracy: " + str(accuracy)
 
   return 0
 
