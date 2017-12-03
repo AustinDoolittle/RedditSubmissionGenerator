@@ -35,8 +35,9 @@
 # my stuff
 *.cache-*
 *.pkl
-*.key
 *.csv
 *.png
 *.sublime*
 secrets.py
+.idea/
+cache/
